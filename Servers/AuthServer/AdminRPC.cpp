@@ -54,6 +54,48 @@ void AdminRPC::SetStartTime()
     m_start_time = QString::number(QDateTime::currentSecsSinceEpoch());
 }
 
+Q_INVOKABLE int AdminRPC::getInfluence(const QString &charName)
+{
+    qCDebug(logRPC) << "Fetching influence for character: " << charName;
+
+    // Create an instance of CreateAccountMessage to send to the game server
+    uint64_t fake_session_token = s_last_token++;
+    int token = static_cast<int>(fake_session_token);
+    m_completion_state.insert(token, "");
+
+    EventProcessor *tgt = HandlerLocator::getAuthDB_Handler();
+    tgt->putq(new GetInfluenceMessage({charName}, fake_session_token, this)); // Modify to use GetInfluenceMessage
+
+    QTimer response_timer;
+    QTimer timeout;
+    timeout.setSingleShot(true);
+    QEventLoop loop;
+    loop.connect(&timeout, SIGNAL(timeout()), SLOT(quit()));
+    loop.connect(this, SIGNAL(responseReceived()), SLOT(quit()));
+    loop.connect(&response_timer, &QTimer::timeout, [=] () {
+        if (!m_completion_state[token].isEmpty()) {
+            emit responseReceived(); // Response received, exit the event loop
+            return;
+        } else {
+            return;
+        }
+    });
+
+    response_timer.start(500); // Checks completion status every 500ms
+    timeout.start(5000);       // Timeout of 5 seconds in case something goes wrong
+    loop.exec();
+
+    if (!m_completion_state[token].isEmpty()) {
+        int influence = /* Parse the response from the game server */;
+        m_completion_state.remove(token); // Cleanup
+        return influence;
+    } else {
+        qWarning() << "Error retrieving influence for character: " << charName;
+        m_completion_state.remove(token); // Cleanup
+        return -1; // Return an error code
+    }
+}
+
 /*!
  * @brief Read server configuration
  * @note m_mutex is held locked during this function
